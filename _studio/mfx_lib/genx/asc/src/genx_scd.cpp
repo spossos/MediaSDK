@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018 Intel Corporation
+// Copyright (c) 2018 Intel Corporation
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -19,7 +19,7 @@
 // SOFTWARE.
 
 #include "cm/cm.h"
-#include <cm/cmtl.h>
+#include "cm/cmtl.h"
 
 #define INTERDATA_SIZE_SMALL    8
 #define INTERDATA_SIZE_BIG      64   // 32x32 and 64x64 blocks
