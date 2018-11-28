@@ -41,6 +41,8 @@ if(MFX_ENABLE_KERNELS)
         set(genx "gen8" PARENT_SCOPE)
       elseif(${platform} STREQUAL "skl")
         set(genx "gen9" PARENT_SCOPE)
+      elseif(${platform} STREQUAL "cnl")
+        set(genx "gen10" PARENT_SCOPE)
       elseif(${platform} STREQUAL "icl")
         set(genx "gen11" PARENT_SCOPE)
       elseif(${platform} STREQUAL "icllp")
@@ -90,14 +92,22 @@ if(MFX_ENABLE_KERNELS)
   set( sources "" )
   set( sources.plus "" )
 
-  set( prefix ${MSDK_GENX_ROOT}/asc/src )
-  list( APPEND sources
+  if(MFX_ENABLE_ASC)
+    if(BUILD_KERNELS)
+      foreach(platform bdw cnl skl icl icllp)
+        add_cmc_target(${MSDK_GENX_ROOT}/asc/src/genx_scd.cpp ${platform} ${MSDK_GENX_ROOT}/asc)
+      endforeach()
+    endif()
+
+    set( prefix ${MSDK_GENX_ROOT}/asc/src )
+    list( APPEND sources
       ${prefix}/genx_scd_bdw_isa.cpp
       ${prefix}/genx_scd_cnl_isa.cpp
       ${prefix}/genx_scd_icl_isa.cpp
       ${prefix}/genx_scd_icllp_isa.cpp
       ${prefix}/genx_scd_skl_isa.cpp
-  )
+    )
+  endif()
 
   set( prefix ${MSDK_GENX_ROOT}/copy_kernels/src )
   list( APPEND sources
