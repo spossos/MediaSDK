@@ -24,6 +24,7 @@
 #if defined(MFX_ENABLE_H265_VIDEO_ENCODE) && defined (MFX_VA_LINUX)
 #include "mfx_common_int.h"
 #include "hevcehw_base_va_lin.h"
+#include "mfx_session.h"
 
 using namespace HEVCEHW;
 using namespace HEVCEHW::Base;
@@ -53,10 +54,11 @@ void VAPacker::Query1WithCaps(const FeatureBlocks& /*blocks*/, TPushQ1 Push)
         caps.MbQpDataSupport            = 1;
         caps.TUSupport                  = 73;
         caps.SliceStructure             = 4;
+        caps.ParallelBRC                = bLP ? 0 : 1;
 
         caps.MaxEncodedBitDepth |= (!caps.BitDepth8Only);
         caps.YUV444ReconSupport |= (!caps.Color420Only && IsOn(par.mfx.LowPower));
-        caps.YUV422ReconSupport |= (!caps.Color420Only && IsOff(par.mfx.LowPower));
+        caps.YUV422ReconSupport &= (!caps.Color420Only && !IsOn(par.mfx.LowPower));
 
         return MFX_ERR_NONE;
     });
@@ -215,18 +217,37 @@ void InitSSH(
         slices.rbegin()->slice_fields.bits.last_slice_of_pic_flag = 1;
 }
 
+void InitPriority(
+    const mfxU32& maxContextPriority,
+    const mfxPriority& contextPriority,
+    VAContextParameterUpdateBuffer& hevcPriorityBuffer)
+{
+    memset(&hevcPriorityBuffer, 0, sizeof(VAContextParameterUpdateBuffer));
+
+    hevcPriorityBuffer.flags.bits.context_priority_update = 1;
+
+    if(contextPriority == MFX_PRIORITY_LOW)
+    {
+        hevcPriorityBuffer.context_priority.bits.priority = 0;
+    }
+    else if (contextPriority == MFX_PRIORITY_HIGH)
+    {
+        hevcPriorityBuffer.context_priority.bits.priority = maxContextPriority;
+    }
+    else
+    {
+        hevcPriorityBuffer.context_priority.bits.priority = maxContextPriority/2;
+    }
+}
+
 void AddVaMiscHRD(
     const Glob::VideoParam::TRef& par
     , std::list<std::vector<mfxU8>>& buf)
 {
     auto& hrd = AddVaMisc<VAEncMiscParameterHRD>(VAEncMiscParameterTypeHRD, buf);
 
-    uint32_t bNeedBufParam =
-        par.mfx.RateControlMethod != MFX_RATECONTROL_CQP
-        && par.mfx.RateControlMethod != MFX_RATECONTROL_ICQ;
-
-    hrd.initial_buffer_fullness = bNeedBufParam * InitialDelayInKB(par.mfx) * 8000;
-    hrd.buffer_size             = bNeedBufParam * BufferSizeInKB(par.mfx) * 8000;
+    hrd.initial_buffer_fullness = InitialDelayInKB(par.mfx) * 8000;
+    hrd.buffer_size             = BufferSizeInKB(par.mfx) * 8000;
 }
 
 void AddVaMiscRC(
@@ -260,7 +281,7 @@ void AddVaMiscRC(
         && (CO2.BRefType == MFX_B_REF_PYRAMID);
 #endif //PARALLEL_BRC_support
 
-    rc.ICQ_quality_factor = uint32_t((par.mfx.RateControlMethod == MFX_RATECONTROL_ICQ) * par.mfx.ICQQuality);
+    rc.ICQ_quality_factor = uint32_t((!IsOn(par.mfx.LowPower)) * (par.mfx.RateControlMethod == MFX_RATECONTROL_ICQ) * par.mfx.ICQQuality);
     rc.initial_qp = bs_pps.init_qp_minus26 + 26;
 
     //  MBBRC control
@@ -499,15 +520,18 @@ void VAPacker::InitAlloc(const FeatureBlocks& /*blocks*/, TPushIA Push)
         InitPPS(par, bs_pps, m_pps);
         InitSSH(par, Glob::SliceInfo::Get(strg), m_slices);
 
-        cc.AddPerSeqMiscData[VAEncMiscParameterTypeHRD].Push([this, &par](
-            VAPacker::CallChains::TAddMiscData::TExt
-            , const StorageR& strg
-            , const StorageR& local
-            , std::list<std::vector<mfxU8>>& data)
-        {
-            AddVaMiscHRD(par, m_vaPerSeqMiscData);
-            return true;
-        });
+        if (par.mfx.RateControlMethod != MFX_RATECONTROL_CQP &&
+            par.mfx.RateControlMethod != MFX_RATECONTROL_ICQ) {
+            cc.AddPerSeqMiscData[VAEncMiscParameterTypeHRD].Push([this, &par](
+                VAPacker::CallChains::TAddMiscData::TExt
+                , const StorageR& strg
+                , const StorageR& local
+                , std::list<std::vector<mfxU8>>& data)
+            {
+                AddVaMiscHRD(par, m_vaPerSeqMiscData);
+                return true;
+            });
+        }
         cc.AddPerSeqMiscData[VAEncMiscParameterTypeRateControl].Push([this, &par, &bs_pps](
             VAPacker::CallChains::TAddMiscData::TExt
             , const StorageR& strg
@@ -656,15 +680,18 @@ void VAPacker::ResetState(const FeatureBlocks& /*blocks*/, TPushRS Push)
 
         m_vaPerSeqMiscData.clear();
 
-        cc.AddPerSeqMiscData[VAEncMiscParameterTypeHRD].Push([this, &par](
-            VAPacker::CallChains::TAddMiscData::TExt
-            , const StorageR& strg
-            , const StorageR& local
-            , std::list<std::vector<mfxU8>>& data)
-        {
-            AddVaMiscHRD(par, m_vaPerSeqMiscData);
-            return true;
-        });
+        if (par.mfx.RateControlMethod != MFX_RATECONTROL_CQP &&
+            par.mfx.RateControlMethod != MFX_RATECONTROL_ICQ) {
+            cc.AddPerSeqMiscData[VAEncMiscParameterTypeHRD].Push([this, &par](
+                VAPacker::CallChains::TAddMiscData::TExt
+                , const StorageR& strg
+                , const StorageR& local
+                , std::list<std::vector<mfxU8>>& data)
+            {
+                AddVaMiscHRD(par, m_vaPerSeqMiscData);
+                return true;
+            });
+        }
         cc.AddPerSeqMiscData[VAEncMiscParameterTypeRateControl].Push([this, &par, &bs_pps](
             VAPacker::CallChains::TAddMiscData::TExt
             , const StorageR& strg
@@ -805,6 +832,8 @@ void VAPacker::SubmitTask(const FeatureBlocks& /*blocks*/, TPushST Push)
         , [this](StorageW& global, StorageW& s_task) -> mfxStatus
     {
         auto& task      = Task::Common::Get(s_task);
+        auto& core      = Glob::VideoCore::Get(global);
+        const auto& priority_par = Glob::PriorityPar::Get(global);
         bool  bSkipCurr =
             !(task.SkipCMD & SKIPCMD_NeedDriverCall)
             && (task.SkipCMD & SKIPCMD_NeedCurrentFrameSkipping);
@@ -901,6 +930,13 @@ void VAPacker::SubmitTask(const FeatureBlocks& /*blocks*/, TPushST Push)
                 auto& misc = m_vaPerPicMiscData.back();
                 par.push_back(PackVaBuffer(VAEncMiscParameterBufferType, misc.data(), (mfxU32)misc.size()));
             }
+        }
+
+        if(priority_par.m_MaxContextPriority)
+        {
+            mfxPriority contextPriority = core.GetSession()->m_priority;
+            InitPriority(priority_par.m_MaxContextPriority, contextPriority, m_hevcPriorityBuf);
+            par.push_back(PackVaBuffer(VAContextParameterUpdateBufferType , m_hevcPriorityBuf));
         }
 
         SetFeedback(task.StatusReportId, *(VASurfaceID*)task.HDLRaw.first, GetResources(RES_BS).at(task.BS.Idx));

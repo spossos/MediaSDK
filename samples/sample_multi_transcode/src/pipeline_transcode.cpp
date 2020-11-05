@@ -2545,20 +2545,10 @@ MFX_IOPATTERN_IN_VIDEO_MEMORY : MFX_IOPATTERN_IN_SYSTEM_MEMORY);
     if (pInParams->bROIasQPMAP || pInParams->bExtMBQP)
     {
         auto co3 = m_mfxEncParams.AddExtBuffer<mfxExtCodingOption3>();
-        switch(m_mfxEncParams.mfx.CodecId)
-        {
-        case MFX_CODEC_AVC:
-        case MFX_CODEC_HEVC:
-            // For AVC codec QP map should define QP value for every 16x16 sub-block of a frame
-            m_QPmapWidth = (m_mfxEncParams.mfx.FrameInfo.Width + 15) >> 4;
-            m_QPmapHeight = (m_mfxEncParams.mfx.FrameInfo.Height + 15) >> 4;
-            co3->EnableMBQP = MFX_CODINGOPTION_ON;
-            break;
-        default:
-            m_QPmapWidth = 0;
-            m_QPmapHeight = 0;
-            break;
-        }
+        // QP map defines QP value for every 16x16 sub-block of a frame
+        m_QPmapWidth = (m_mfxEncParams.mfx.FrameInfo.Width + 15) >> 4;
+        m_QPmapHeight = (m_mfxEncParams.mfx.FrameInfo.Height + 15) >> 4;
+        co3->EnableMBQP = MFX_CODINGOPTION_ON;
     }
 #endif
 
@@ -3763,6 +3753,10 @@ mfxStatus CTranscodingPipeline::Init(sInputParams *pParams,
     sts = CheckRequiredAPIVersion(m_Version, pParams);
     MSDK_CHECK_STATUS(sts, "CheckRequiredAPIVersion failed");
 
+    // common session settings
+    if (m_Version.Major >= 1 && m_Version.Minor >= 1)
+        sts = m_pmfxSession->SetPriority(pParams->priority);
+
     // opaque memory feature is available starting with API 1.3 and
     // can be used within 1 intra session or joined inter sessions only
     if (m_Version.Major >= 1 && m_Version.Minor >= 3 &&
@@ -3853,12 +3847,6 @@ mfxStatus CTranscodingPipeline::Init(sInputParams *pParams,
     }
 
     isHEVCSW = AreGuidsEqual(pParams->decoderPluginParams.pluginGuid, MFX_PLUGINID_HEVCD_SW);
-
-    // if sink - suspended allocation
-
-    // common session settings
-    if (m_Version.Major >= 1 && m_Version.Minor >= 1)
-        sts = m_pmfxSession->SetPriority(pParams->priority);
 
     // if sink - suspended allocation
     if (Native !=  pParams->eMode)

@@ -529,7 +529,7 @@ mfxStatus CDecodingPipeline::Init(sInputParams *pParams)
         MSDK_CHECK_STATUS(sts, "Plugin load failed");
     }
 
-#if (MFX_VERSION >= MFX_VERSION_NEXT)
+#if (MFX_VERSION >= 1034)
     m_mfxVideoParams.mfx.IgnoreLevelConstrain = pParams->bIgnoreLevelConstrain;
 #endif
 
@@ -1038,6 +1038,11 @@ mfxStatus CDecodingPipeline::InitVppParams()
         (  m_mfxVppVideoParams.vpp.Out.FourCC == MFX_FOURCC_P010
 #if (MFX_VERSION >= 1027)
         || m_mfxVppVideoParams.vpp.Out.FourCC == MFX_FOURCC_Y210
+#endif
+#if (MFX_VERSION >= 1031)
+        || m_mfxVppVideoParams.vpp.Out.FourCC == MFX_FOURCC_P016
+        || m_mfxVppVideoParams.vpp.Out.FourCC == MFX_FOURCC_Y216
+        || m_mfxVppVideoParams.vpp.Out.FourCC == MFX_FOURCC_Y416
 #endif
         )
     )
