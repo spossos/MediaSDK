@@ -254,7 +254,7 @@ struct gpuFrameData
 {
     CmSurface2D
         * frameData,
-        *fOut;
+        * fOut;
     SurfaceIndex
         * fIdx,
         * fIdxOut;

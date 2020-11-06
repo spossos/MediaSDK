@@ -2088,18 +2088,22 @@ mfxStatus ImplementationAvc::SubmitToMctf(DdiTask * pTask)
     MFX_AUTO_LTRACE(MFX_TRACE_LEVEL_API, "VideoVPPHW::SubmitToMctf");
 
     pTask->m_bFrameReady = false;
-    bool isIntraFrame    = (pTask->GetFrameType() & MFX_FRAMETYPE_I) || (pTask->GetFrameType() & MFX_FRAMETYPE_IDR);
-    bool isPFrame        = (pTask->GetFrameType() & MFX_FRAMETYPE_P);
+    bool isIntraFrame    = pTask->GetFrameType() & (MFX_FRAMETYPE_I | MFX_FRAMETYPE_IDR);
+    bool isPFrame        = pTask->GetFrameType() & MFX_FRAMETYPE_P;
     bool isAnchorFrame   = isIntraFrame || isPFrame;
 
     amtMctf->IntBufferUpdate(pTask->m_SceneChange, isIntraFrame, pTask->m_doMCTFIntraFiltering);
     if (isAnchorFrame || pTask->m_SceneChange)
     {
-        pTask->m_idxMCTF = FindFreeResourceIndex(m_mctf);
-        pTask->m_midMCTF = AcquireResource(m_mctf, pTask->m_idxMCTF);
-        if (!pTask->m_midMCTF)
-            return MFX_TASK_BUSY;
-        MFX_SAFE_CALL(m_core->GetFrameHDL(pTask->m_midMCTF, &pTask->m_handleMCTF.first));
+        pTask->m_idxMCTF          = FindFreeResourceIndex(m_mctf);
+        pTask->m_midMCTF          = AcquireResource(m_mctf, pTask->m_idxMCTF);
+        pTask->m_handleMCTF.first = nullptr;
+        if (pTask->m_midMCTF)
+        {
+            MFX_SAFE_CALL(m_core->GetFrameHDL(pTask->m_midMCTF, &pTask->m_handleMCTF.first));
+        }
+        else
+            isAnchorFrame = false; //No resource available to generate filtered output, let it pass.
     }
     if (IsCmNeededForSCD(m_video))
     {
@@ -2142,8 +2146,8 @@ mfxStatus ImplementationAvc::SubmitToMctf(DdiTask * pTask)
 
 mfxStatus ImplementationAvc::QueryFromMctf(void *pParam)
 {
+    MFX_CHECK_NULL_PTR1(pParam);
     DdiTask *pTask = (DdiTask*)pParam;
-    MFX_CHECK_NULL_PTR1(pTask);
 
     pTask->m_bFrameReady = amtMctf->MCTF_ReadyToOutput();
     //Check if noise analysis determined if filter is not neeeded and free resources and handle
